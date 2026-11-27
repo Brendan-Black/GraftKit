@@ -1,0 +1,4 @@
+node_modules/
+*.log
+# Your own settings: copy graftkit.example.json to graftkit.json and edit it.
+graftkit.json

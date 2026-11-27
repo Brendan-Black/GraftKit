@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="graftkit-token" content="__TOKEN__">
+<title>GraftKit</title>
+<style>
+:root {
+  --bg: #f6f7f9; --panel: #ffffff; --line: #e2e5ea; --text: #1d2330; --muted: #677084; --accent: #2f6fde;
+  --ok: #1f8a4c; --warn: #b7791f; --bad: #c53030; --console: #10141c; --console-text: #d7dde8; --chip: #eef1f6;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #0f1218; --panel: #171b23; --line: #2a303c; --text: #e3e7ef; --muted: #8b94a7; --accent: #6b9cff;
+    --ok: #4cc27f; --warn: #e3b053; --bad: #f07272; --console: #0a0d12; --console-text: #d7dde8; --chip: #222835; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+header { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 12px 20px; border-bottom: 1px solid var(--line); background: var(--panel); position: sticky; top: 0; z-index: 2; }
+header h1 { font-size: 17px; margin: 0 8px 0 0; letter-spacing: .2px; }
+.pill { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; background: var(--chip); font-size: 13px; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+.dot.up { background: var(--ok); } .dot.down { background: var(--bad); }
+.banner { background: color-mix(in srgb, var(--warn) 18%, var(--panel)); border: 1px solid var(--warn); color: var(--text); padding: 6px 12px; border-radius: 8px; font-size: 13px; }
+main { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(320px, 1fr); gap: 16px; padding: 16px 20px; }
+@media (max-width: 980px) { main { grid-template-columns: 1fr; padding: 12px 16px; } }
+section { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; min-width: 0; }
+section h2 { font-size: 14px; margin: 0 0 10px; display: flex; align-items: center; gap: 8px; }
+section h2 .grow { flex: 1; }
+.col { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+button { font: inherit; border: 1px solid var(--line); background: var(--chip); color: var(--text); padding: 5px 12px; border-radius: 8px; cursor: pointer; }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+button.danger { color: var(--bad); }
+button:disabled { opacity: .5; cursor: default; }
+.small { font-size: 12px; padding: 3px 9px; }
+.muted { color: var(--muted); }
+#log { background: var(--console); color: var(--console-text); font: 12.5px/1.45 ui-monospace, "Cascadia Mono", Consolas, monospace; height: 56vh; min-height: 280px; overflow: auto; padding: 10px 12px; border-radius: 8px; white-space: pre-wrap; word-break: break-word; }
+#log .warn { color: #e3b053; } #log .error { color: #f07272; } #log .cmd { color: #8fb8ff; } #log .reply { color: #9be3b4; }
+.inputrow { display: flex; gap: 8px; margin-top: 8px; }
+.inputrow input { flex: 1; min-width: 0; font: 13px ui-monospace, Consolas, monospace; padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--text); }
+ul.list { list-style: none; margin: 0; padding: 0; }
+ul.list li { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-top: 1px solid var(--line); }
+ul.list li:first-child { border-top: 0; }
+ul.list .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sub { font-size: 12px; color: var(--muted); }
+code.copy { display: block; font: 12px ui-monospace, Consolas, monospace; background: var(--chip); padding: 6px 8px; border-radius: 6px; margin: 4px 0 8px; word-break: break-all; cursor: copy; }
+pre.out { background: var(--chip); padding: 8px 10px; border-radius: 8px; font: 12px ui-monospace, Consolas, monospace; white-space: pre-wrap; margin: 8px 0 0; max-height: 220px; overflow: auto; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+dialog { border: 1px solid var(--line); border-radius: 12px; background: var(--panel); color: var(--text); width: min(900px, 94vw); }
+dialog pre { white-space: pre-wrap; font: 12px ui-monospace, Consolas, monospace; max-height: 70vh; overflow: auto; }
+.err { color: var(--bad); font-size: 13px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>GraftKit</h1>
+  <span class="pill"><span class="dot" id="srvdot"></span><span id="srvtext">checking…</span></span>
+  <span class="pill" id="players">no players</span>
+  <button id="srvbtn" class="primary" disabled>…</button>
+  <span id="restart" class="banner" hidden>Mods changed since the server started: restart it to load them.</span>
+  <span class="grow" style="flex:1"></span>
+  <span class="muted" id="mcver"></span>
+</header>
+<main>
+  <div class="col">
+    <section>
+      <h2>Server console <span class="grow"></span><label class="sub"><input type="checkbox" id="follow" checked> follow</label></h2>
+      <div id="log"></div>
+      <form class="inputrow" id="consoleform">
+        <input id="consolein" autocomplete="off" spellcheck="false" placeholder="Server command, e.g. time set day   (↑/↓ for history)">
+        <button class="primary">Send</button>
+      </form>
+    </section>
+    <section>
+      <h2>Toolkit</h2>
+      <form class="inputrow" id="toolform" style="margin-top:0">
+        <input id="toolin" autocomplete="off" spellcheck="false" placeholder="e.g. house --near Steve --style cherry">
+        <button class="primary">Run</button>
+      </form>
+      <div class="chips" id="toolchips"></div>
+      <pre class="out" id="toolout" hidden></pre>
+    </section>
+  </div>
+  <div class="col">
+    <section>
+      <h2>Sharing with Macs <span class="grow"></span><button id="sharebtn" class="small">…</button></h2>
+      <div id="shareinfo" class="sub"></div>
+      <h2 style="margin-top:12px">Activity</h2>
+      <ul class="list" id="events"></ul>
+    </section>
+    <section>
+      <h2>Mods</h2>
+      <div class="sub" style="margin-bottom:6px">Published: the server runs these and Macs sync them.</div>
+      <ul class="list" id="published"></ul>
+      <div id="disabledwrap" hidden><div class="sub" style="margin:10px 0 6px">Switched off</div><ul class="list" id="disabled"></ul></div>
+      <div class="sub" style="margin:10px 0 6px">Projects</div>
+      <ul class="list" id="projects"></ul>
+      <pre class="out" id="buildout" hidden></pre>
+    </section>
+    <section>
+      <h2>Reports from Macs</h2>
+      <ul class="list" id="reports"></ul>
+    </section>
+  </div>
+</main>
+<dialog id="dlg"><h2 id="dlgtitle" style="font-size:14px;margin:0 0 8px"></h2><pre id="dlgtext"></pre><form method="dialog"><button>Close</button></form></dialog>
+<script>
+'use strict';
+const TOKEN = document.querySelector('meta[name="graftkit-token"]').content;
+const $ = (id) => document.getElementById(id);
+
+/** Builds an element; strings become text nodes, so nothing from the server is ever parsed as HTML. */
+function h(tag, props = {}, ...kids) {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(props)) {
+    if (k === 'class') el.className = v;
+    else if (k.startsWith('on')) el.addEventListener(k.slice(2), v);
+    else if (v !== false && v !== null && v !== undefined) el.setAttribute(k, v === true ? '' : String(v));
+  }
+  for (const kid of kids.flat()) if (kid !== null && kid !== undefined && kid !== false) el.append(kid instanceof Node ? kid : document.createTextNode(String(kid)));
+  return el;
+}
+const replaceKids = (el, ...kids) => { el.replaceChildren(...kids.flat().filter(Boolean)); };
+
+async function api(method, url, body) {
+  const res = await fetch(url, { method, headers: { 'X-GraftKit-Token': TOKEN, 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
+  const data = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+  if (!res.ok || data.error) throw new Error(data.error || `HTTP ${res.status}`);
+  return data;
+}
+const ago = (t) => { const s = Math.round((Date.now() - t) / 1000); return s < 60 ? `${s}s ago` : s < 3600 ? `${Math.round(s / 60)}m ago` : new Date(t).toLocaleTimeString(); };
+const size = (n) => n > 1e6 ? `${(n / 1e6).toFixed(1)} MB` : `${Math.round(n / 1e3)} KB`;
+
+// ---- console ----
+const log = $('log');
+function logLine(text, cls) {
+  const div = h('div', { class: cls || (/\/WARN\]/.test(text) ? 'warn' : /\/ERROR\]|Exception/.test(text) ? 'error' : null) }, text);
+  log.append(div);
+  while (log.childNodes.length > 2000) log.firstChild.remove();
+  if ($('follow').checked) log.scrollTop = log.scrollHeight;
+}
+const stream = new EventSource(`/api/log?token=${TOKEN}`);
+stream.onmessage = (e) => { for (const l of JSON.parse(e.data)) logLine(l); };
+stream.onerror = () => logLine('[dashboard] lost the log stream; retrying…', 'error');
+
+const history = []; let hpos = 0;
+$('consoleform').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const cmd = $('consolein').value.trim();
+  if (!cmd) return;
+  history.push(cmd); hpos = history.length; $('consolein').value = '';
+  logLine(`> ${cmd}`, 'cmd');
+  try { const r = await api('POST', '/api/console', { cmd }); logLine(r.out || '(no output)', 'reply'); }
+  catch (err) { logLine(`! ${err.message}`, 'error'); }
+});
+$('consolein').addEventListener('keydown', (e) => {
+  if (e.key === 'ArrowUp' && hpos > 0) { hpos--; $('consolein').value = history[hpos]; e.preventDefault(); }
+  if (e.key === 'ArrowDown') { hpos = Math.min(history.length, hpos + 1); $('consolein').value = history[hpos] || ''; e.preventDefault(); }
+});
+
+// ---- toolkit ----
+const EXAMPLES = ['status', 'house', 'village --houses 6', 'pets count --for ', 'immortal --for ', 'gear --for ', 'raid --for '];
+async function runTool(line) {
+  $('toolout').hidden = false; $('toolout').textContent = `running: ${line}`;
+  try { $('toolout').textContent = (await api('POST', '/api/toolkit', { line })).out; }
+  catch (err) { $('toolout').textContent = `error: ${err.message}`; }
+}
+$('toolform').addEventListener('submit', (e) => { e.preventDefault(); const l = $('toolin').value.trim(); if (l) runTool(l); });
+
+// ---- state ----
+let state = null;
+function render(s) {
+  state = s;
+  const up = s.server.up;
+  $('srvdot').className = `dot ${up ? 'up' : 'down'}`;
+  $('srvtext').textContent = up ? 'server running' : 'server stopped';
+  const players = s.server.players.ok ? s.server.players.value : null;
+  $('players').textContent = players === null ? `players: ${s.server.players.error}` : players.length ? `online: ${players.join(', ')}` : 'no players';
+  $('srvbtn').disabled = false;
+  $('srvbtn').textContent = up ? 'Stop server' : 'Start server';
+  $('srvbtn').className = up ? 'danger' : 'primary';
+  $('restart').hidden = s.server.restartNeeded !== 'yes';
+  $('mcver').textContent = `Minecraft ${s.minecraft} · ${s.server.dir}`;
+  replaceKids($('toolchips'), EXAMPLES.map((x) => {
+    const filled = x.endsWith(' ') && players && players.length ? x + players[0] : x;
+    return h('button', { class: 'small', type: 'button', onclick: () => { $('toolin').value = filled; $('toolin').focus(); } }, filled.trim());
+  }));
+
+  // sharing
+  $('sharebtn').disabled = s.share.busy;
+  $('sharebtn').textContent = s.share.busy ? 'working…' : s.share.on ? 'Stop sharing' : 'Start sharing';
+  $('sharebtn').className = `small ${s.share.on ? 'danger' : 'primary'}`;
+  replaceKids($('shareinfo'), s.share.on
+    ? [h('div', {}, 'On the Mac, in Terminal (click to copy):'), ...s.share.addresses.map((a) => {
+        const base = `http://${a.address}:${s.share.port}`, line = `curl -fsSL ${base}/sync | bash`;
+        return [h('div', { class: 'sub' }, `${a.ifname}`), h('code', { class: 'copy', title: 'click to copy', onclick: () => navigator.clipboard.writeText(line) }, line)];
+      })]
+    : [h('div', {}, 'Off. Start sharing to let a friend’s Mac sync Graft and the published mods. It opens a firewall port for local networks only, and closes it when you stop.')]);
+  replaceKids($('events'), s.events.length ? s.events.slice(0, 12).map((e) => h('li', {},
+    h('span', { class: 'name' }, `${e.what}${e.file ? `: ${e.file}` : ''}${e.published ? `: ${e.published}` : ''}${e.summary ? `: ${e.summary}` : ''}${e.message ? `: ${e.message}` : ''}`),
+    h('span', { class: 'sub' }, `${e.ip ? e.ip + ' · ' : ''}${ago(e.time)}`))) : [h('li', { class: 'sub' }, 'nothing yet')]);
+
+  // mods
+  if (!s.mods.ok) replaceKids($('published'), h('li', { class: 'err' }, s.mods.error));
+  else {
+    const label = (m) => m.kind === 'graft' ? `${m.info.name} ${m.info.version}` : m.kind === 'other' ? 'not a Graft mod' : `unreadable: ${m.reason}`;
+    replaceKids($('published'), s.mods.value.published.length ? s.mods.value.published.map((m) => h('li', {},
+      h('span', { class: 'name' }, m.file, h('div', { class: 'sub' }, `${label(m)} · ${size(m.size)}`)),
+      h('button', { class: 'small', onclick: () => act('POST', '/api/mods/unpublish', { file: m.file }) }, 'Switch off'))) : [h('li', { class: 'sub' }, 'none')]);
+    $('disabledwrap').hidden = !s.mods.value.disabled.length;
+    replaceKids($('disabled'), s.mods.value.disabled.map((m) => h('li', {},
+      h('span', { class: 'name' }, m.file, h('div', { class: 'sub' }, label(m))),
+      h('button', { class: 'small', onclick: () => act('POST', '/api/mods/republish', { file: m.file }) }, 'Switch on'))));
+  }
+  if (!s.projects.ok) replaceKids($('projects'), h('li', { class: 'err' }, s.projects.error));
+  else replaceKids($('projects'), s.projects.value.length ? s.projects.value.map((p) => h('li', {},
+    h('span', { class: 'name', title: p.dir }, p.name, h('div', { class: 'sub' }, p.built ? `built ${p.built.file}, ${ago(p.built.modified)}` : 'not built')),
+    p.built ? h('button', { class: 'small', onclick: () => act('POST', '/api/mods/publish', { path: p.built.path }) }, 'Publish') : null,
+    h('button', { class: 'small primary', disabled: !!(s.build && s.build.code === null), onclick: () => act('POST', '/api/mods/build', { dir: p.dir }) }, 'Build & publish'))) : [h('li', { class: 'sub' }, 'no Graft mod projects found')]);
+  $('buildout').hidden = !s.build;
+  if (s.build) $('buildout').textContent = `${s.build.project}: ${s.build.code === null ? 'building…' : s.build.code === 0 ? 'built and published' : 'build failed'}\n${s.build.lines.join('\n')}`;
+
+  // reports
+  replaceKids($('reports'), s.reports.length ? s.reports.map((r) => h('li', {},
+    h('span', { class: 'name' }, r), h('button', { class: 'small', onclick: () => showReport(r) }, 'View'))) : [h('li', { class: 'sub' }, 'none yet')]);
+}
+
+async function act(method, url, body) {
+  try { await api(method, url, body); } catch (err) { alert(err.message); }
+  refresh();
+}
+async function showReport(name) {
+  try { const r = await api('GET', `/api/report?name=${encodeURIComponent(name)}`); $('dlgtitle').textContent = name; $('dlgtext').textContent = r.text; $('dlg').showModal(); }
+  catch (err) { alert(err.message); }
+}
+$('srvbtn').addEventListener('click', () => {
+  if (!state) return;
+  if (state.server.up && !confirm('Stop the server? Players will be disconnected.')) return;
+  $('srvbtn').disabled = true;
+  act('POST', state.server.up ? '/api/server/stop' : '/api/server/start');
+});
+$('sharebtn').addEventListener('click', () => { if (state) { $('sharebtn').disabled = true; act('POST', state.share.on ? '/api/share/off' : '/api/share/on'); } });
+
+let refreshing = false;
+async function refresh() {
+  if (refreshing) return;
+  refreshing = true;
+  try { render(await api('GET', '/api/state')); }
+  catch (err) { $('srvtext').textContent = `dashboard error: ${err.message}`; }
+  finally { refreshing = false; }
+}
+refresh();
+setInterval(refresh, 2500);
+</script>
+</body>
+</html>

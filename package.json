@@ -1,0 +1,10 @@
+{
+  "name": "graftkit",
+  "version": "0.1.0",
+  "description": "Graft mod manager and Minecraft server toolkit: share Graft mods with friends' Macs over the local network, run the server, and drive it with short actions.",
+  "private": true,
+  "license": "Apache-2.0",
+  "bin": { "graftkit": "src/cli.js" },
+  "scripts": { "test": "node --test \"test/*.test.js\"" },
+  "engines": { "node": ">=24" }
+}

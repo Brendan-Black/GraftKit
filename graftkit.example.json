@@ -1,0 +1,9 @@
+{
+  "serverDir": "D:\\minecraft-server",
+  "modRoots": ["\\\\wsl.localhost\\Ubuntu\\home\\you\\code"],
+  "minecraft": "26.3",
+  "sharePort": 8765,
+  "dashboardPort": 8770,
+  "serverRam": "6G",
+  "profileName": "Graft (26.3)"
+}
