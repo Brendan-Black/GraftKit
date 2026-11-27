@@ -1,7 +1,8 @@
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const { Rcon } = require('../src/rcon');
-const { pseudoRcon } = require('./helpers');
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import type { Socket } from 'node:net';
+import { Rcon } from '../src/rcon.ts';
+import { pseudoRcon } from './helpers.ts';
 
 test('a short reply comes back whole', async (t) => {
   const s = await pseudoRcon(t, (c) => (c === 'list' ? 'There are 0 of a max of 10 players online:' : ''));
@@ -38,7 +39,7 @@ test('no server is an error that says what to check', async () => {
 });
 
 test('a dropped connection fails the command in flight', async (t) => {
-  let sockets = [];
+  const sockets: Socket[] = [];
   const s = await pseudoRcon(t, () => { setImmediate(() => sockets.forEach((x) => x.destroy())); return ''; });
   s.server.on('connection', (sock) => sockets.push(sock));
   const r = await Rcon.connect({ port: s.port, password: 'pw' });

@@ -1,10 +1,24 @@
 // Shared by the actions: option parsing, where a target is, randomness, and turning many command replies into a
 // short summary. Actions get a context { cfg, connect(), clock: { now() }, sleep(ms) } so tests can swap any of it.
-const { playerName } = require('../values');
+import type { Context } from '../context.ts';
+import type { Rcon } from '../rcon.ts';
+import { playerName } from '../values.ts';
+
+/** One option's value: text from the command line, or true for a bare flag. Code calling actions may pass numbers. */
+export type OptValue = string | number | boolean;
+
+/** Parsed options: positionals in _, the rest by name. Values are unchecked; each action checks what it takes. */
+export interface Opts {
+  _: string[];
+  [name: string]: OptValue | string[] | undefined;
+}
+
+/** An action: what `graftkit <action>` and the dashboard's toolkit run. Resolves with lines to show. */
+export type Action = (ctx: Context, opts: Opts) => Promise<string[]>;
 
 /** ["house", "--near", "bob", "--fast"] -> { _: ["house"], near: "bob", fast: true } */
-function parseArgs(argv) {
-  const out = { _: [] };
+export function parseArgs(argv: readonly string[]): Opts {
+  const out: Opts = { _: [] };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a.startsWith('--')) {
@@ -18,20 +32,23 @@ function parseArgs(argv) {
 }
 
 /** Checks the targeting options before anything touches the server. */
-function checkTarget(opts) {
+export function checkTarget(opts: Opts): Opts {
   for (const k of ['near', 'for', 'player']) if (opts[k] !== undefined) playerName(opts[k]);
   return opts;
 }
 
-async function withRcon(ctx, fn) {
+export async function withRcon<T>(ctx: Context, fn: (r: Rcon) => Promise<T>): Promise<T> {
   const r = await ctx.connect();
   try { return await fn(r); } finally { r.close(); }
 }
 
-const num = (s) => Number(String(s).replace(/[dfbsL]$/, ''));
+const num = (s: string) => Number(String(s).replace(/[dfbsL]$/, ''));
+
+/** Where a player (or a spot given with --at) is, and which way they face. */
+export interface Position { x: number; y: number; z: number; yaw: number; player: string | null }
 
 /** A player's position and facing, or null when they aren't online. */
-async function playerAt(r, name) {
+export async function playerAt(r: Rcon, name: string): Promise<Position | null> {
   const pos = await r.send(`data get entity ${playerName(name)} Pos`);
   const m = pos.match(/\[(-?[\d.E-]+)d, (-?[\d.E-]+)d, (-?[\d.E-]+)d\]/);
   if (!m) return null;
@@ -39,13 +56,13 @@ async function playerAt(r, name) {
   return { x: num(m[1]), y: num(m[2]), z: num(m[3]), yaw: rm ? num(rm[1]) : 0, player: name };
 }
 
-async function online(r) {
+export async function online(r: Rcon): Promise<string[]> {
   const list = await r.send('list');
   return (list.split(':')[1] || '').split(',').map((s) => s.trim()).filter(Boolean);
 }
 
 /** --at x,y,z, or --near/--for/--player <name>, or else the only player online. */
-async function target(r, opts) {
+export async function target(r: Rcon, opts: Partial<Opts>): Promise<Position> {
   if (opts.at) {
     const [x, y, z] = String(opts.at).split(',').map(Number);
     if ([x, y, z].some((v) => !Number.isFinite(v))) throw new Error('--at needs x,y,z');
@@ -62,19 +79,30 @@ async function target(r, opts) {
   return at;
 }
 
+export type Direction = 'north' | 'south' | 'east' | 'west';
+
 /** Minecraft yaw -> the cardinal direction faced (0 = south, 90 = west). */
-function facing(yaw) {
+export function facing(yaw: number): Direction {
   const y = ((yaw % 360) + 360) % 360;
   if (y >= 45 && y < 135) return 'west';
   if (y >= 135 && y < 225) return 'north';
   if (y >= 225 && y < 315) return 'east';
   return 'south';
 }
-const STEP = { north: [0, -1], south: [0, 1], west: [-1, 0], east: [1, 0] };
-const OPPOSITE = { north: 'south', south: 'north', east: 'west', west: 'east' };
+export const STEP: Record<Direction, [number, number]> = { north: [0, -1], south: [0, 1], west: [-1, 0], east: [1, 0] };
+export const OPPOSITE: Record<Direction, Direction> = { north: 'south', south: 'north', east: 'west', west: 'east' };
+export const DIRECTIONS = Object.keys(STEP) as Direction[];
+
+export interface Rng {
+  seed: number;
+  next(): number;
+  int(a: number, b: number): number;
+  pick<T>(arr: readonly T[]): T;
+  chance(p: number): boolean;
+}
 
 /** Seeded randomness, so a --seed rebuilds exactly the same thing. */
-function rng(seed = Math.floor(Math.random() * 2 ** 31)) {
+export function rng(seed = Math.floor(Math.random() * 2 ** 31)): Rng {
   let s = seed >>> 0;
   const next = () => {
     s = (s + 0x6d2b79f5) >>> 0;
@@ -90,18 +118,16 @@ function rng(seed = Math.floor(Math.random() * 2 ** 31)) {
 const FINE = /^(Successfully filled|Changed the block|Summoned new|No blocks were filled|Could not set the block|Applied effect|Gave |Replaced |Teleported|Spread |Removed |Killed |Modified entity|Displaying particle|Played sound|Showing new|Set |Game rule|Marked|Unmarked|Test passed|Test failed|There are|Unable to apply this effect|$)/;
 
 /** Runs commands; returns { ok, problems: [unique error lines with counts] }. */
-async function runAll(r, commands, { delay = 0, sleep } = {}) {
-  const problems = new Map();
+export async function runAll(r: Rcon, commands: readonly string[], { delay = 0, sleep }: { delay?: number; sleep?: (ms: number) => Promise<void> } = {}): Promise<{ ok: number; problems: string[] }> {
+  const problems = new Map<string, number>();
   let ok = 0;
   for (const c of commands) {
     const out = await r.send(c);
     const bad = out.split(/(?<=[a-z.!)\]])(?=[A-Z])/).filter((l) => l && !FINE.test(l));
     if (bad.length) { const k = bad[0].slice(0, 140); problems.set(k, (problems.get(k) || 0) + 1); } else ok++;
-    if (delay) await sleep(delay);
+    if (delay && sleep) await sleep(delay);
   }
   return { ok, problems: [...problems].map(([k, n]) => (n > 1 ? `${k} (x${n})` : k)) };
 }
 
-const countOf = (out) => { const m = out.match(/Count: (\d+)/); return m ? Number(m[1]) : 0; };
-
-module.exports = { parseArgs, checkTarget, withRcon, playerAt, online, target, facing, STEP, OPPOSITE, rng, runAll, countOf };
+export const countOf = (out: string): number => { const m = out.match(/Count: (\d+)/); return m ? Number(m[1]) : 0; };

@@ -1,11 +1,11 @@
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const { playerName, jarFileName, intIn, wslLocation } = require('../src/values');
-const { uuidIntArray, uuidOf } = require('../src/players');
-const { parseArgs, facing, rng } = require('../src/actions/util');
-const { splitLine } = require('../src/dashboard');
-const { buildCommand } = require('../src/mods');
-const { tempServer } = require('./helpers');
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { playerName, jarFileName, intIn, wslLocation } from '../src/values.ts';
+import { uuidIntArray, uuidOf } from '../src/players.ts';
+import { parseArgs, facing, rng } from '../src/actions/util.ts';
+import { splitLine } from '../src/dashboard.ts';
+import { buildCommand } from '../src/mods.ts';
+import { tempServer } from './helpers.ts';
 
 test('player names are checked before they reach a command', () => {
   assert.equal(playerName('Alex_Builder'), 'Alex_Builder');

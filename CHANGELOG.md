@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- **TypeScript.** GraftKit is now TypeScript, checked with TypeScript 7 (`npm run typecheck`, also run in CI). Node
+  runs the `.ts` files directly, so there is still no build step and nothing to install to run it. Run it with
+  `node src\cli.ts` (`graftkit.cmd` does this); it needs Node 24.2 or later.
+- `mac/profile.js` is now `mac/profile.cjs` on disk. Macs still download it as `/profile.js`, so nothing changes for them.
+- `house --facing` with no direction, or `--facing random`, faces the way the player looks instead of failing.
+
 ## 0.1.0
 
 The first release.

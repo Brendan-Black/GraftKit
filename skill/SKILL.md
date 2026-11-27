@@ -10,7 +10,7 @@ description: Drive a Graft Minecraft server and its mods with GraftKit. Use when
 Run it with **Windows** Node (the server, its RCON, the firewall and the LAN are on the Windows side):
 
 ```
-node <path to GraftKit>\src\cli.js <command> [options]
+node <path to GraftKit>\src\cli.ts <command> [options]
 ```
 
 Prefer an action over writing raw commands: one short call, a one-line summary back. Use `cmd` for anything no action

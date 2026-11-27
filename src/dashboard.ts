@@ -1,30 +1,47 @@
 // The web dashboard, on 127.0.0.1 only. API calls need a random token that is embedded in the page, and the Host
 // header must be local, so other websites open in the same browser can't drive the server. The dashboard also owns
 // the share (on and off) for friends' Macs.
-const fs = require('fs');
-const path = require('path');
-const http = require('http');
-const crypto = require('crypto');
-const { ROOT } = require('./config');
-const mods = require('./mods');
-const server = require('./server');
-const share = require('./share');
-const windows = require('./windows');
-const { parseArgs } = require('./actions/util');
+import fs from 'node:fs';
+import path from 'node:path';
+import http from 'node:http';
+import crypto from 'node:crypto';
+import { ROOT, type Config } from './config.ts';
+import type { Context } from './context.ts';
+import { errorMessage } from './errors.ts';
+import type { Rcon } from './rcon.ts';
+import * as mods from './mods.ts';
+import * as server from './server.ts';
+import * as share from './share.ts';
+import * as windows from './windows.ts';
+import { ACTIONS } from './actions/index.ts';
+import { parseArgs, type Opts } from './actions/util.ts';
 
-const shareRule = (cfg) => `GraftKit share ${cfg.sharePort}`;
+const shareRule = (cfg: Config) => `GraftKit share ${cfg.sharePort}`;
 const MAX_BODY = 64 * 1024;
 
-function createState() {
+/** Something that happened, for the dashboard's event list. */
+interface DashboardEvent { time: number; what: string; [detail: string]: unknown }
+
+interface State {
+  events: DashboardEvent[];
+  shareServer: http.Server | null;
+  shareBusy: boolean;
+  build: { project: string; lines: string[]; code: number | null } | null;
+  logLines: string[];
+  logClients: Set<http.ServerResponse>;
+  rcon: Rcon | null;
+}
+
+function createState(): State {
   return { events: [], shareServer: null, shareBusy: false, build: null, logLines: [], logClients: new Set(), rcon: null };
 }
 
-function note(st, what, extra = {}) {
+function note(st: State, what: string, extra: object = {}): void {
   st.events.push({ time: Date.now(), what, ...extra });
   if (st.events.length > 300) st.events.splice(0, st.events.length - 300);
 }
 
-async function shareOn(ctx, st) {
+async function shareOn(ctx: Context, st: State): Promise<void> {
   if (st.shareServer || st.shareBusy) return;
   st.shareBusy = true;
   try {
@@ -41,11 +58,12 @@ async function shareOn(ctx, st) {
   }
 }
 
-async function shareOff(ctx, st) {
-  if (!st.shareServer || st.shareBusy) return;
+async function shareOff(ctx: Context, st: State): Promise<void> {
+  const shareServer = st.shareServer;
+  if (!shareServer || st.shareBusy) return;
   st.shareBusy = true;
   try {
-    await new Promise((resolve) => st.shareServer.close(() => resolve()));
+    await new Promise<void>((resolve) => shareServer.close(() => resolve()));
     st.shareServer = null;
     await windows.firewall(ctx.cfg, { open: false, name: shareRule(ctx.cfg) });
     note(st, 'share-off');
@@ -55,7 +73,7 @@ async function shareOff(ctx, st) {
 }
 
 /** 'yes' when mods changed after the server started (its log was created then), 'no', or 'unknown'. */
-function restartNeeded(cfg, up) {
+function restartNeeded(cfg: Config, up: boolean): 'yes' | 'no' | 'unknown' {
   if (!up) return 'no';
   const log = path.join(cfg.serverDir, 'logs', 'latest.log');
   if (!fs.existsSync(log) || !fs.existsSync(cfg.modsDir)) return 'unknown';
@@ -64,25 +82,27 @@ function restartNeeded(cfg, up) {
   return changed ? 'yes' : 'no';
 }
 
-async function rconFor(ctx, st) {
+async function rconFor(ctx: Context, st: State): Promise<Rcon> {
   if (!st.rcon || st.rcon.closed) st.rcon = await ctx.connect();
   return st.rcon;
 }
 
+type Part<T> = { ok: true; value: T } | { ok: false; error: string };
+
 /** One part of the state; a part that fails reports its error instead of sinking the whole page. */
-async function part(fn) {
-  try { return { ok: true, value: await fn() }; } catch (e) { return { ok: false, error: e.message }; }
+async function part<T>(fn: () => T | Promise<T>): Promise<Part<T>> {
+  try { return { ok: true, value: await fn() }; } catch (e) { return { ok: false, error: errorMessage(e) }; }
 }
 
-async function snapshot(ctx, st) {
+async function snapshot(ctx: Context, st: State) {
   const { cfg } = ctx;
   const up = await server.isUp(cfg.serverDir);
-  const players = up ? await part(async () => {
+  const players: Part<string[]> = up ? await part(async () => {
     const list = await (await rconFor(ctx, st)).send('list');
     return (list.split(':')[1] || '').split(',').map((s) => s.trim()).filter(Boolean);
   }) : { ok: true, value: [] };
   const reportsDir = path.join(cfg.dataDir, 'reports');
-  const strip = (m) => ({ file: m.file, size: m.size, modified: m.modified, path: m.path, kind: m.kind, info: m.info || null, reason: m.reason || null });
+  const strip = (m: mods.Jar) => ({ file: m.file, size: m.size, modified: m.modified, path: m.path, kind: m.kind, info: m.kind === 'graft' ? m.info : null, reason: m.kind === 'unreadable' ? m.reason : null });
   return {
     server: { up, players, restartNeeded: restartNeeded(cfg, up), dir: cfg.serverDir },
     share: { on: !!st.shareServer, busy: st.shareBusy, port: cfg.sharePort, addresses: share.lanAddresses() },
@@ -95,26 +115,29 @@ async function snapshot(ctx, st) {
   };
 }
 
-function readBody(req) {
+/** A request's JSON body; its fields are unchecked. */
+type Body = Record<string, unknown>;
+
+function readBody(req: http.IncomingMessage): Promise<Body> {
   return new Promise((resolve, reject) => {
-    const chunks = [];
+    const chunks: Buffer[] = [];
     let size = 0;
-    req.on('data', (c) => { size += c.length; if (size <= MAX_BODY) chunks.push(c); });
+    req.on('data', (c: Buffer) => { size += c.length; if (size <= MAX_BODY) chunks.push(c); });
     req.on('end', () => {
       if (size > MAX_BODY) { reject(new Error('request too large')); return; }
       const text = Buffer.concat(chunks).toString('utf8');
-      try { resolve(text ? JSON.parse(text) : {}); } catch (e) { reject(new Error(`bad JSON: ${e.message}`, { cause: e })); }
+      try { resolve(text ? JSON.parse(text) : {}); } catch (e) { reject(new Error(`bad JSON: ${errorMessage(e)}`, { cause: e })); }
     });
     req.on('error', reject);
   });
 }
 
 /** Splits a toolkit line like a shell would for plain words and "quoted text", without running anything. */
-function splitLine(line) {
+export function splitLine(line: unknown): string[] {
   return (String(line).match(/"[^"]*"|\S+/g) || []).map((s) => (s.startsWith('"') && s.endsWith('"') ? s.slice(1, -1) : s));
 }
 
-function createDashboard(ctx) {
+export function createDashboard(ctx: Context) {
   const { cfg } = ctx;
   const st = createState();
   const token = crypto.randomBytes(24).toString('hex');
@@ -128,7 +151,7 @@ function createDashboard(ctx) {
     for (const res of st.logClients) res.write(msg);
   }, { backlog: 300 });
 
-  const api = {
+  const api: Record<string, (b: Body, url: URL) => Promise<unknown>> = {
     'GET /api/state': () => snapshot(ctx, st),
     'POST /api/server/start': async () => {
       if (await server.isUp(cfg.serverDir)) return { already: true };
@@ -149,10 +172,10 @@ function createDashboard(ctx) {
       return { out: await (await rconFor(ctx, st)).send(cmd) };
     },
     'POST /api/toolkit': async (b) => {
-      const { ACTIONS } = require('./cli');
-      const opts = parseArgs(splitLine(b.line));
-      const fn = ACTIONS[opts._[0]];
-      if (!fn) throw new Error(`unknown action "${opts._[0] || ''}"; try ${Object.keys(ACTIONS).join(', ')}`);
+      const opts: Opts = parseArgs(splitLine(b.line));
+      const name = opts._[0];
+      const fn = name !== undefined && Object.hasOwn(ACTIONS, name) ? ACTIONS[name] : undefined;
+      if (!fn) throw new Error(`unknown action "${name || ''}"; try ${Object.keys(ACTIONS).join(', ')}`);
       return { out: (await fn(ctx, opts)).join('\n') };
     },
     'POST /api/mods/publish': async (b) => { const r = mods.publish(cfg, String(b.path)); note(st, 'publish', r); return r; },
@@ -162,17 +185,17 @@ function createDashboard(ctx) {
       if (st.build && st.build.code === null) throw new Error('a build is already running');
       const project = mods.projects(cfg).find((p) => p.dir === b.dir);
       if (!project) throw new Error('unknown project');
-      st.build = { project: project.name, lines: [], code: null };
-      mods.build(project.dir, (l) => st.build.lines.push(l)).then((code) => {
-        st.build.code = code;
+      const build: NonNullable<State['build']> = st.build = { project: project.name, lines: [], code: null };
+      mods.build(project.dir, (l) => build.lines.push(l)).then((code) => {
+        build.code = code;
         if (code !== 0) { note(st, 'build-failed', { project: project.name }); return; }
         const built = mods.projects(cfg).find((p) => p.dir === b.dir)?.built;
         if (!built) { note(st, 'build-failed', { project: project.name, message: 'no Graft mod jar in build/libs' }); return; }
         note(st, 'publish', mods.publish(cfg, built.path));
-      }).catch((e) => { st.build.code = -1; note(st, 'build-failed', { project: project.name, message: e.message }); });
+      }).catch((e) => { build.code = -1; note(st, 'build-failed', { project: project.name, message: errorMessage(e) }); });
       return { ok: true };
     },
-    'GET /api/report': async (b, url) => {
+    'GET /api/report': async (_b, url) => {
       const name = url.searchParams.get('name') || '';
       if (!/^[\w.-]+\.txt$/.test(name)) throw new Error('bad report name');
       return { text: fs.readFileSync(path.join(cfg.dataDir, 'reports', name), 'utf8') };
@@ -180,7 +203,7 @@ function createDashboard(ctx) {
   };
 
   const httpServer = http.createServer(async (req, res) => {
-    const url = new URL(req.url, 'http://x');
+    const url = new URL(req.url ?? '/', 'http://x');
     if (!/^(127\.0\.0\.1|localhost):\d+$/.test(req.headers.host || '')) { res.writeHead(403).end('forbidden'); return; }
     if (req.method === 'GET' && url.pathname === '/') {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Frame-Options': 'DENY' });
@@ -196,7 +219,8 @@ function createDashboard(ctx) {
       req.on('close', () => st.logClients.delete(res));
       return;
     }
-    const fn = api[`${req.method} ${url.pathname}`];
+    const route = `${req.method} ${url.pathname}`;
+    const fn = Object.hasOwn(api, route) ? api[route] : undefined;
     if (!fn) { res.writeHead(404).end('not found'); return; }
     try {
       const body = req.method === 'POST' ? await readBody(req) : {};
@@ -205,7 +229,7 @@ function createDashboard(ctx) {
       res.end(JSON.stringify(out));
     } catch (e) {
       res.writeHead(500, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: e.message }));
+      res.end(JSON.stringify({ error: errorMessage(e) }));
     }
   });
 
@@ -214,14 +238,14 @@ function createDashboard(ctx) {
     if (st.rcon) st.rcon.close();
     for (const c of st.logClients) c.end();
     await shareOff(ctx, st);
-    await new Promise((resolve) => httpServer.close(() => resolve()));
+    await new Promise<void>((resolve) => httpServer.close(() => resolve()));
   };
   return { httpServer, st, token, close };
 }
 
-async function run(ctx, opts) {
+export async function run(ctx: Context, opts: Opts): Promise<never> {
   const d = createDashboard(ctx);
-  await new Promise((resolve, reject) => {
+  await new Promise<void>((resolve, reject) => {
     d.httpServer.once('error', (e) => reject(new Error(`can't open the dashboard on port ${ctx.cfg.dashboardPort}: ${e.message}`, { cause: e })));
     d.httpServer.listen(ctx.cfg.dashboardPort, '127.0.0.1', resolve);
   });
@@ -233,7 +257,7 @@ async function run(ctx, opts) {
       await d.close();
       process.exit(0);
     } catch (e) {
-      console.error(`graftkit: while closing: ${e.message}. Check that the firewall rule "${shareRule(ctx.cfg)}" is gone.`);
+      console.error(`graftkit: while closing: ${errorMessage(e)}. Check that the firewall rule "${shareRule(ctx.cfg)}" is gone.`);
       process.exit(1);
     }
   };
@@ -243,7 +267,7 @@ async function run(ctx, opts) {
 }
 
 /** graftkit share: only the share, in the foreground, printing what Macs do. */
-async function shareForeground(ctx) {
+export async function shareForeground(ctx: Context): Promise<never> {
   const st = createState();
   await shareOn(ctx, st);
   const lines = share.lanAddresses().map((a) => `  curl -fsSL http://${a.address}:${ctx.cfg.sharePort}/sync | bash    (${a.ifname})`);
@@ -256,11 +280,9 @@ async function shareForeground(ctx) {
       await shareOff(ctx, st);
       process.exit(0);
     } catch (e) {
-      console.error(`graftkit: ${e.message}`);
+      console.error(`graftkit: ${errorMessage(e)}`);
       process.exit(1);
     }
   });
   return new Promise(() => {});
 }
-
-module.exports = { run, shareForeground, createDashboard, splitLine };

@@ -1,15 +1,16 @@
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const fs = require('fs');
-const path = require('path');
-const mods = require('../src/mods');
-const { tempServer, graftMod, makeJar } = require('./helpers');
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import * as mods from '../src/mods.ts';
+import { tempServer, graftMod, makeJar } from './helpers.ts';
 
-function put(dir, name, buf) { fs.mkdirSync(dir, { recursive: true }); const p = path.join(dir, name); fs.writeFileSync(p, buf); return p; }
+function put(dir: string, name: string, buf: Buffer | string): string { fs.mkdirSync(dir, { recursive: true }); const p = path.join(dir, name); fs.writeFileSync(p, buf); return p; }
 
 test('jars are told apart: Graft mods, other jars, and damaged ones', (t) => {
   const { dir } = tempServer(t);
-  assert.deepEqual(mods.inspect(put(dir, 'a.jar', graftMod('zoom', '1.0'))).info.id, 'zoom');
+  const mod = mods.inspect(put(dir, 'a.jar', graftMod('zoom', '1.0')));
+  assert.equal(mod.kind === 'graft' && mod.info.id, 'zoom');
   assert.equal(mods.inspect(put(dir, 'b.jar', makeJar({ 'fabric.mod.json': '{}' }))).kind, 'other');
   const broken = mods.inspect(put(dir, 'c.jar', Buffer.from('not a zip')));
   assert.equal(broken.kind, 'unreadable');

@@ -1,22 +1,25 @@
 // A village: varied houses in a ring with their doors toward the middle, dirt paths, a bell, villagers and optional
 // iron golems. Beds, job blocks and the bell make the game treat it as a village, so raids work there.
-const { checkTarget, withRcon, target, rng, runAll } = require('./util');
-const { houseCommands, JOBS } = require('./house');
-const { intIn } = require('../values');
+import { checkTarget, withRcon, target, rng, runAll, type Direction, type Opts, type Rng } from './util.ts';
+import { houseCommands, JOBS, type HouseInfo } from './house.ts';
+import type { Context } from '../context.ts';
+import { intIn } from '../values.ts';
 
 /** The cardinal side of a house at (hx, hz) that faces the point (x, z). */
-function sideToward(hx, hz, x, z) {
+export function sideToward(hx: number, hz: number, x: number, z: number): Direction {
   const vx = x - hx, vz = z - hz;
   return Math.abs(vx) >= Math.abs(vz) ? (vx > 0 ? 'east' : 'west') : (vz > 0 ? 'south' : 'north');
 }
 
+export interface VillageOptions { houses?: unknown; radius?: unknown; villagers?: unknown; golems?: unknown; style?: unknown; [other: string]: unknown }
+
 /** Commands for a village centred on (X, Y, Z). Returns { commands, houses, radius }. */
-function villageCommands({ x: X, y: Y, z: Z }, R, opts = {}) {
+export function villageCommands({ x: X, y: Y, z: Z }: { x: number; y: number; z: number }, R: Rng, opts: VillageOptions = {}): { commands: string[]; houses: HouseInfo[]; radius: number; villagers: number; golems: number } {
   const n = intIn(opts.houses ?? 6, 1, 16, '--houses');
   const radius = intIn(opts.radius ?? Math.max(13, Math.round(n * 2.6)), 8, 64, '--radius');
   const perHouse = intIn(opts.villagers ?? 1, 0, 4, '--villagers');
   const golems = intIn(opts.golems ?? 0, 0, 8, '--golems');
-  const commands = [], houses = [];
+  const commands: string[] = [], houses: HouseInfo[] = [];
   const start = R.next() * Math.PI * 2;
   for (let i = 0; i < n; i++) {
     const a = start + (Math.PI * 2 * i) / n;
@@ -41,7 +44,7 @@ function villageCommands({ x: X, y: Y, z: Z }, R, opts = {}) {
 }
 
 /** graftkit village [--near p | --at x,y,z] [--houses 6] [--radius n] [--style ...] [--villagers 1] [--golems 0] [--seed n] */
-async function village(ctx, opts) {
+export async function village(ctx: Context, opts: Opts): Promise<string[]> {
   checkTarget(opts);
   villageCommands({ x: 0, y: 0, z: 0 }, rng(0), opts); // checks the counts and style before anything touches the server
   return withRcon(ctx, async (r) => {
@@ -56,5 +59,3 @@ async function village(ctx, opts) {
       ...res.problems.map((p) => `  problem: ${p}`)];
   });
 }
-
-module.exports = { village, villageCommands, sideToward };

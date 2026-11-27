@@ -1,9 +1,12 @@
 // Houses with variation: size, one of nine material sets, gabled or flat roof, windows, bed, furniture, carpet,
 // lantern and sometimes a chimney. Each house is axis-aligned with its door on one side, facing outward.
-const { checkTarget, withRcon, target, facing, STEP, OPPOSITE, rng, runAll } = require('./util');
-const { intIn } = require('../values');
+import { checkTarget, withRcon, target, facing, STEP, OPPOSITE, DIRECTIONS, rng, runAll, type Direction, type Opts, type Rng } from './util.ts';
+import type { Context } from '../context.ts';
+import { intIn } from '../values.ts';
 
-const STYLES = {
+interface Style { wall: string; frame: string; floor: string; roof: string; door: string }
+
+export const STYLES = {
   spruce:    { wall: 'spruce_planks', frame: 'spruce_log', floor: 'spruce_planks', roof: 'spruce', door: 'spruce' },
   oak:       { wall: 'oak_planks', frame: 'oak_log', floor: 'oak_planks', roof: 'dark_oak', door: 'oak' },
   birch:     { wall: 'birch_planks', frame: 'stripped_birch_log', floor: 'birch_planks', roof: 'spruce', door: 'birch' },
@@ -13,27 +16,44 @@ const STYLES = {
   cherry:    { wall: 'cherry_planks', frame: 'cherry_log', floor: 'cherry_planks', roof: 'cherry', door: 'cherry' },
   mangrove:  { wall: 'mangrove_planks', frame: 'mangrove_log', floor: 'mangrove_planks', roof: 'mangrove', door: 'mangrove' },
   deepslate: { wall: 'deepslate_bricks', frame: 'polished_deepslate', floor: 'dark_oak_planks', roof: 'deepslate_tile', door: 'dark_oak' },
-};
-const SIZES = { small: [5, 6, 3, 3], medium: [6, 8, 3, 4], large: [8, 10, 4, 5] }; // [min side, max side, min height, max height]
-const ROOFS = ['gable', 'flat'];
+} satisfies Record<string, Style>;
+type StyleName = keyof typeof STYLES;
+const STYLE_NAMES = Object.keys(STYLES) as StyleName[];
+
+// [min side, max side, min height, max height]
+export const SIZES = { small: [5, 6, 3, 3], medium: [6, 8, 3, 4], large: [8, 10, 4, 5] } satisfies Record<string, [number, number, number, number]>;
+type SizeName = keyof typeof SIZES;
+const SIZE_NAMES = Object.keys(SIZES) as SizeName[];
+
+const ROOFS = ['gable', 'flat'] as const;
 const COLORS = ['white', 'orange', 'magenta', 'light_blue', 'yellow', 'lime', 'pink', 'gray', 'light_gray', 'cyan', 'purple', 'blue', 'brown', 'green', 'red', 'black'];
 const GLASS = ['glass', 'glass', 'white_stained_glass', 'light_blue_stained_glass', 'brown_stained_glass'];
-const JOBS = ['composter', 'lectern', 'smithing_table', 'fletching_table', 'brewing_stand', 'cartography_table', 'barrel', 'blast_furnace', 'smoker', 'loom', 'grindstone', 'stonecutter', 'cauldron'];
+export const JOBS = ['composter', 'lectern', 'smithing_table', 'fletching_table', 'brewing_stand', 'cartography_table', 'barrel', 'blast_furnace', 'smoker', 'loom', 'grindstone', 'stonecutter', 'cauldron'];
 
-function choose(value, options, what) {
+/** An option naming one of the choices; null for "pick at random". */
+function choose<T extends string>(value: unknown, options: readonly T[], what: string): T | null {
   if (value === undefined || value === true || value === 'random') return null;
-  if (!options.includes(value)) throw new Error(`unknown ${what} "${value}"; try ${options.join(', ')}`);
-  return value;
+  if (!options.includes(value as T)) throw new Error(`unknown ${what} "${value}"; try ${options.join(', ')}`);
+  return value as T;
+}
+
+/** The choices for one house; anything left out is picked at random. */
+export interface HouseOptions { style?: unknown; size?: unknown; roof?: unknown; job?: unknown; [other: string]: unknown }
+
+/** What was built, and where. */
+export interface HouseInfo {
+  style: StyleName; size: SizeName; w: number; d: number; h: number; roof: (typeof ROOFS)[number]; door: Direction; chimney: boolean;
+  x0: number; z0: number; x1: number; z1: number; y: number; cx: number; cz: number; bed: [number, number][]; doorAt: [number, number];
 }
 
 /**
  * Commands for one house. (x, y, z) is the centre of the footprint at floor level (the block a player stands in);
  * door is the wall the door goes in. Returns { commands, info }.
  */
-function houseCommands({ x, y, z }, door, R, opts = {}) {
-  const styleName = choose(opts.style, Object.keys(STYLES), 'style') || R.pick(Object.keys(STYLES));
-  const S = STYLES[styleName];
-  const sizeName = choose(opts.size, Object.keys(SIZES), 'size') || (R.chance(0.2) ? 'large' : R.chance(0.4) ? 'small' : 'medium');
+export function houseCommands({ x, y, z }: { x: number; y: number; z: number }, door: Direction, R: Rng, opts: HouseOptions = {}): { commands: string[]; info: HouseInfo } {
+  const styleName = choose(opts.style, STYLE_NAMES, 'style') || R.pick(STYLE_NAMES);
+  const S: Style = STYLES[styleName];
+  const sizeName = choose(opts.size, SIZE_NAMES, 'size') || (R.chance(0.2) ? 'large' : R.chance(0.4) ? 'small' : 'medium');
   const [lo, hi, hlo, hhi] = SIZES[sizeName];
   const roofStyle = choose(opts.roof, ROOFS, 'roof') || (R.chance(0.75) ? 'gable' : 'flat');
   const w = R.int(lo, hi), d = R.int(lo, hi), h = R.int(hlo, hhi);
@@ -41,9 +61,9 @@ function houseCommands({ x, y, z }, door, R, opts = {}) {
   const x1 = x0 + w - 1, z1 = z0 + d - 1;
   const cx = x0 + Math.floor(w / 2), cz = z0 + Math.floor(d / 2);
   const roofHeight = roofStyle === 'gable' ? Math.ceil(Math.min(w, d) / 2) + 1 : 1;
-  const c = [];
-  const fill = (ax, ay, az, bx, by, bz, block, mode) => c.push(`fill ${ax} ${ay} ${az} ${bx} ${by} ${bz} ${block}${mode ? ` ${mode}` : ''}`);
-  const set = (ax, ay, az, block) => c.push(`setblock ${ax} ${ay} ${az} ${block}`);
+  const c: string[] = [];
+  const fill = (ax: number, ay: number, az: number, bx: number, by: number, bz: number, block: string, mode?: string) => c.push(`fill ${ax} ${ay} ${az} ${bx} ${by} ${bz} ${block}${mode ? ` ${mode}` : ''}`);
+  const set = (ax: number, ay: number, az: number, block: string) => c.push(`setblock ${ax} ${ay} ${az} ${block}`);
 
   // Clear the plot (trees, snow, hills), then a foundation so the house doesn't float over dips or water.
   fill(x0 - 2, Y, z0 - 2, x1 + 2, Y + h + roofHeight + 2, z1 + 2, 'air');
@@ -108,7 +128,7 @@ function houseCommands({ x, y, z }, door, R, opts = {}) {
   const [ix, iz] = STEP[door]; // from the head at the back wall, the foot points toward the door
   set(bx, Y, bz, `${bed}[facing=${back},part=head]`);
   set(bx + ix, Y, bz + iz, `${bed}[facing=${back},part=foot]`);
-  set(corners[1][0], Y, corners[1][1], opts.job || R.pick(['crafting_table', 'furnace', 'bookshelf', 'barrel', R.pick(JOBS)]));
+  set(corners[1][0], Y, corners[1][1], (typeof opts.job === 'string' && opts.job) || R.pick(['crafting_table', 'furnace', 'bookshelf', 'barrel', R.pick(JOBS)]));
   set(corners[2][0], Y, corners[2][1], R.pick(['chest', 'barrel', 'bookshelf']));
   set(corners[3][0], Y, corners[3][1], R.pick(['potted_poppy', 'potted_dandelion', 'potted_azure_bluet', 'potted_fern', 'potted_spruce_sapling', 'furnace', 'crafting_table']));
   if (R.chance(0.6)) fill(x0 + 1, Y, z0 + 1, x1 - 1, Y, z1 - 1, `${R.pick(COLORS)}_carpet`, 'replace air');
@@ -126,13 +146,14 @@ function houseCommands({ x, y, z }, door, R, opts = {}) {
 }
 
 /** graftkit house [--near p | --at x,y,z] [--dist 10] [--style ...] [--size small|medium|large] [--roof gable|flat] [--seed n] */
-async function house(ctx, opts) {
+export async function house(ctx: Context, opts: Opts): Promise<string[]> {
   checkTarget(opts);
-  if (opts.style !== undefined) choose(opts.style, Object.keys(STYLES), 'style');
-  if (opts.size !== undefined) choose(opts.size, Object.keys(SIZES), 'size');
+  if (opts.style !== undefined) choose(opts.style, STYLE_NAMES, 'style');
+  if (opts.size !== undefined) choose(opts.size, SIZE_NAMES, 'size');
   return withRcon(ctx, async (r) => {
     const at = await target(r, opts);
-    const dir = opts.facing ? choose(opts.facing, Object.keys(STEP), 'facing') : facing(at.yaw);
+    // A bare --facing or --facing random means the way the player faces.
+    const dir = (opts.facing ? choose(opts.facing, DIRECTIONS, 'facing') : null) ?? facing(at.yaw);
     const dist = intIn(opts.dist ?? 10, 4, 64, '--dist');
     const [fx, fz] = STEP[dir];
     const R = rng(opts.seed !== undefined ? intIn(opts.seed, 0, 2 ** 31, '--seed') : undefined);
@@ -143,5 +164,3 @@ async function house(ctx, opts) {
       ...res.problems.map((p) => `  problem: ${p}`)];
   });
 }
-
-module.exports = { house, houseCommands, STYLES, SIZES, JOBS };
