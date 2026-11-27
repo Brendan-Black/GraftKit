@@ -6,6 +6,10 @@
   runs the `.ts` files directly, so there is still no build step and nothing to install to run it. Run it with
   `node src\cli.ts` (`graftkit.cmd` does this); it needs Node 24.2 or later.
 - `mac/profile.js` is now `mac/profile.cjs` on disk. Macs still download it as `/profile.js`, so nothing changes for them.
+- **Starting the server works again.** The dashboard's Start button and `server start` launched PowerShell with no
+  console, so it quit without doing anything and without an error. The server window is now opened by
+  `win/start-server.ps1`, and a launch that fails says why. If the server can't start, its window stays open showing the
+  problem instead of closing at once.
 - `house --facing` with no direction, or `--facing random`, faces the way the player looks instead of failing.
 
 ## 0.1.0

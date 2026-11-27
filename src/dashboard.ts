@@ -155,7 +155,7 @@ export function createDashboard(ctx: Context) {
     'GET /api/state': () => snapshot(ctx, st),
     'POST /api/server/start': async () => {
       if (await server.isUp(cfg.serverDir)) return { already: true };
-      windows.startServer(cfg);
+      await windows.startServer(cfg);
       note(st, 'server-start');
       return { ok: true };
     },
