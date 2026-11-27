@@ -91,7 +91,7 @@ export async function main(argv: readonly string[]): Promise<string[]> {
     if (sub === 'status') return [up ? 'the server is running' : 'the server is not running'];
     if (sub === 'start') {
       if (up) return ['the server is already running'];
-      windows.startServer(cfg);
+      await windows.startServer(cfg);
       return ['starting the server in its own window; accept the admin prompt so it can open its firewall port'];
     }
     if (sub === 'stop') {

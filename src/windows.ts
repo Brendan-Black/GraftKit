@@ -6,7 +6,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { ROOT, type Config } from './config.ts';
 
-const SCRIPTS = ['firewall.ps1', 'elevate.ps1', 'run-server.ps1'] as const;
+const SCRIPTS = ['firewall.ps1', 'elevate.ps1', 'run-server.ps1', 'start-server.ps1'] as const;
 
 type Scripts = { dir: string } & Record<(typeof SCRIPTS)[number], string>;
 
@@ -51,12 +51,16 @@ export async function firewall(cfg: Config, { open, name, port, program }: Firew
   }
 }
 
-/** Starts the server in a console window of its own, which outlives GraftKit. */
-export function startServer(cfg: Config): void {
+/**
+ * Starts the server in a console window of its own, which outlives GraftKit. start-server.ps1 opens the window and
+ * exits; resolves once it has, and fails if it couldn't (spawning pwsh detached instead gives it no console, and it
+ * quits without running anything).
+ */
+export async function startServer(cfg: Config): Promise<void> {
   const s = installScripts(cfg);
-  const child = spawn('pwsh', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', s['run-server.ps1'], '-ServerDir', cfg.serverDir,
-    '-Ram', cfg.serverRam || '6G', '-Elevate', s['elevate.ps1'], '-Firewall', s['firewall.ps1']], { detached: true, stdio: 'ignore' });
-  child.unref();
+  const { code, err } = await run('pwsh', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', s['start-server.ps1'], '-RunServer', s['run-server.ps1'],
+    '-ServerDir', cfg.serverDir, '-Ram', cfg.serverRam || '6G', '-Elevate', s['elevate.ps1'], '-Firewall', s['firewall.ps1']]);
+  if (code !== 0) throw new Error(`couldn't open the server's window: ${err || `pwsh exited with ${code}`}`);
 }
 
 /** Opens a URL in the default browser. */
