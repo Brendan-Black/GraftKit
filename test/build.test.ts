@@ -1,8 +1,8 @@
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const { houseCommands, STYLES, SIZES } = require('../src/actions/house');
-const { villageCommands, sideToward } = require('../src/actions/village');
-const { rng } = require('../src/actions/util');
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { houseCommands, STYLES, SIZES } from '../src/actions/house.ts';
+import { villageCommands, sideToward } from '../src/actions/village.ts';
+import { rng } from '../src/actions/util.ts';
 
 const COMMAND = /^(fill -?\d+ -?\d+ -?\d+ -?\d+ -?\d+ -?\d+ [a-z_]+(\[[a-z_=,]+\])?( replace [a-z_]+| hollow)?|setblock -?\d+ -?\d+ -?\d+ [a-z_]+(\[[a-z_=,]+\])?|summon (villager|iron_golem) [-\d.]+ -?\d+ [-\d.]+( \{PlayerCreated:1b\})?)$/;
 
@@ -13,7 +13,7 @@ test('the same seed builds the same house', () => {
 });
 
 test('every style, size, roof and door side gives well-formed commands', () => {
-  for (const style of Object.keys(STYLES)) for (const size of Object.keys(SIZES)) for (const roof of ['gable', 'flat']) for (const door of ['north', 'south', 'east', 'west']) {
+  for (const style of Object.keys(STYLES)) for (const size of Object.keys(SIZES)) for (const roof of ['gable', 'flat']) for (const door of ['north', 'south', 'east', 'west'] as const) {
     const { commands, info } = houseCommands({ x: 10, y: 70, z: -5 }, door, rng(style.length * 31 + door.length), { style, size, roof });
     for (const c of commands) assert.match(c, COMMAND, `${style}/${size}/${roof}/${door}: ${c}`);
     assert.equal(info.style, style);
@@ -22,7 +22,7 @@ test('every style, size, roof and door side gives well-formed commands', () => {
 });
 
 test('the door is in the wall it was asked for, and the bed is inside, away from the door', () => {
-  for (let seed = 0; seed < 200; seed++) for (const door of ['north', 'south', 'east', 'west']) {
+  for (let seed = 0; seed < 200; seed++) for (const door of ['north', 'south', 'east', 'west'] as const) {
     const { info } = houseCommands({ x: 0, y: 64, z: 0 }, door, rng(seed));
     const [dx, dz] = info.doorAt;
     if (door === 'north') assert.equal(dz, info.z0); if (door === 'south') assert.equal(dz, info.z1);

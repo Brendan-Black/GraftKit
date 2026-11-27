@@ -1,11 +1,12 @@
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const { army, pets } = require('../src/actions/pets');
-const { house } = require('../src/actions/house');
-const player = require('../src/actions/player');
-const { tempServer, pseudoRcon, testContext, pretendWorld } = require('./helpers');
+import test, { type TestContext } from 'node:test';
+import assert from 'node:assert/strict';
+import { army, pets } from '../src/actions/pets.ts';
+import { house } from '../src/actions/house.ts';
+import { village } from '../src/actions/village.ts';
+import * as player from '../src/actions/player.ts';
+import { tempServer, pseudoRcon, testContext, pretendWorld } from './helpers.ts';
 
-async function setup(t, players) {
+async function setup(t: TestContext, players?: Parameters<typeof pretendWorld>[0]) {
   const { cfg } = tempServer(t);
   const world = pretendWorld(players);
   const s = await pseudoRcon(t, world.handle);
@@ -24,7 +25,7 @@ test('army makes the pets asked for, tamed to the player, tagged, varied and imm
   }
   assert.equal(world.summoned.filter((c) => c.includes('AgeLocked:1b')).length, 3);
   assert.equal(world.summoned.filter((c) => c.includes(' cat ')).length, 5);
-  const dogCoats = new Set(world.summoned.filter((c) => c.includes(' wolf ')).map((c) => c.match(/variant:"minecraft:(\w+)"/)[1]));
+  const dogCoats = new Set(world.summoned.filter((c) => c.includes(' wolf ')).map((c) => c.match(/variant:"minecraft:(\w+)"/)![1]));
   assert.equal(dogCoats.size, 5, 'each dog gets a different coat until the coats run out');
 });
 
@@ -56,7 +57,6 @@ test('bad targets and options are refused before touching the server', async (t)
   const { ctx, commands } = await setup(t);
   await assert.rejects(house(ctx, { _: ['house'], near: 'bad name' }), /isn't a Minecraft player name/);
   await assert.rejects(house(ctx, { _: ['house'], style: 'glass' }), /unknown style/);
-  const { village } = require('../src/actions/village');
   await assert.rejects(village(ctx, { _: ['village'], houses: 99 }), /--houses must be/);
   assert.deepEqual(commands, []);
 });

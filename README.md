@@ -12,16 +12,16 @@ Only Graft mods (jars with `graft.mod.properties`) are published or shared, and 
 
 ## Setting up
 
-You need Windows with Node 24 or later, PowerShell 7 (`pwsh`), and a Minecraft server folder with Graft
+You need Windows with Node 24.2 or later, PowerShell 7 (`pwsh`), and a Minecraft server folder with Graft
 (`graft.jar` next to the vanilla `server.jar`) and RCON switched on in `server.properties`.
 
 1. Copy `graftkit.example.json` to `graftkit.json` and fill in the server folder, where your Graft mod projects live
    (`modRoots`), the ports, and the name of the launcher installation friends get.
-2. Run `graftkit help` (or `node src\cli.js help`).
+2. Run `graftkit help` (or `node src\cli.ts help`).
 
 GraftKit runs with **Windows** Node even when its code sits in WSL, because the server, its RCON console, the firewall
 and the network a friend's Mac reaches are all on the Windows side; WSL's NAT network reaches none of them. Run it by
-its Windows path, for example `node \\wsl.localhost\<distro>\home\<you>\GraftKit\src\cli.js help`. Mod projects that
+its Windows path, for example `node \\wsl.localhost\<distro>\home\<you>\GraftKit\src\cli.ts help`. Mod projects that
 live in WSL are built in WSL (`wsl.exe -d <distro> --cd <project> -- ./gradlew build`).
 
 To let Claude Code drive the server with these actions, copy `skill/SKILL.md` to `~/.claude/skills/graftkit/SKILL.md`
@@ -58,13 +58,22 @@ address of this machine that the Mac connected to, taken from the operating syst
 the request), checked against a pattern with no shell metacharacters, and inside single quotes. Everything else comes
 from the mod list as data. An address given as the script's first argument takes the slot's place.
 
-## Tests
+## Developing
+
+GraftKit is written in TypeScript, and Node runs the `.ts` files as they are (it strips the types), so there is no
+build step and running GraftKit needs nothing installed. Only checking the types needs the TypeScript 7 compiler:
 
 ```console
+$ npm install
+$ npm run typecheck
 $ npm test
 ```
 
-They bring what they need: a pseudo RCON server that behaves like the vanilla one where it matters (one packet per read,
+The code sticks to TypeScript that Node can strip (`erasableSyntaxOnly`): no enums, namespaces or parameter
+properties. `mac/profile.cjs` stays plain JavaScript, since a friend's Mac runs it with `osascript -l JavaScript`; the
+share serves it as `/profile.js`.
+
+The tests bring what they need: a pseudo RCON server that behaves like the vanilla one where it matters (one packet per read,
 long replies split into 4096-byte packets), throwaway server folders and jars, and `sync.sh` run in bash against a live
 share with the macOS-only tools (`shasum`, `osascript`, `pgrep`) replaced on `PATH`. The Windows pieces (firewall rules,
 starting the server) are thin PowerShell scripts in `win/` and are checked by hand.

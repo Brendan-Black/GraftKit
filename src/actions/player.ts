@@ -1,11 +1,12 @@
 // Player actions: status, immortality buffs, full gear, a raid, an on-screen title, and raw commands.
-const { withRcon, playerAt, online, runAll, countOf } = require('./util');
-const { playerName, playerOrSelector, intIn } = require('../values');
+import { withRcon, playerAt, online, runAll, countOf, type Opts } from './util.ts';
+import type { Context } from '../context.ts';
+import { playerName, playerOrSelector, intIn } from '../values.ts';
 
 const MODES = ['survival', 'creative', 'adventure', 'spectator'];
 
 /** graftkit status */
-async function status(ctx) {
+export async function status(ctx: Context): Promise<string[]> {
   return withRcon(ctx, async (r) => {
     const names = await online(r);
     const lines = [`${names.length} player(s) online${names.length ? ':' : ''}`];
@@ -20,10 +21,10 @@ async function status(ctx) {
   });
 }
 
-const BUFFS = [['resistance', 4], ['fire_resistance', 0], ['saturation', 0], ['regeneration', 1], ['water_breathing', 0]];
+const BUFFS: [effect: string, level: number][] = [['resistance', 4], ['fire_resistance', 0], ['saturation', 0], ['regeneration', 1], ['water_breathing', 0]];
 
 /** graftkit immortal --for p [--off] */
-async function immortal(ctx, opts) {
+export async function immortal(ctx: Context, opts: Opts): Promise<string[]> {
   const p = playerName(opts.for || opts.player);
   return withRcon(ctx, async (r) => {
     if (opts.off) { await r.send(`effect clear ${p}`); return [`${p}: every effect cleared`]; }
@@ -42,7 +43,7 @@ const ARMOR = {
 const SWORD_ENCHANTMENTS = '{sharpness:5,unbreaking:3,looting:3,fire_aspect:2,sweeping_edge:3,mending:1}';
 
 /** graftkit gear --for p [--elytra] [--sword truezoom:thunderfury] [--rockets n] */
-async function gear(ctx, opts) {
+export async function gear(ctx: Context, opts: Opts): Promise<string[]> {
   const p = playerName(opts.for || opts.player);
   const sword = String(opts.sword || 'truezoom:thunderfury');
   if (!/^[a-z0-9_.-]+:[a-z0-9_/.-]+$|^[a-z0-9_/.-]+$/.test(sword)) throw new Error(`"${sword}" isn't an item id`);
@@ -60,7 +61,7 @@ async function gear(ctx, opts) {
 }
 
 /** graftkit raid --for p  (they must be standing in a village). Waits up to 75 s for the first wave. */
-async function raid(ctx, opts) {
+export async function raid(ctx: Context, opts: Opts): Promise<string[]> {
   const p = playerName(opts.for || opts.player);
   return withRcon(ctx, async (r) => {
     await r.send(`effect give ${p} bad_omen 6000 0`);
@@ -78,10 +79,10 @@ async function raid(ctx, opts) {
 }
 
 /** graftkit title --for p "Big text" ["small text"] */
-async function title(ctx, opts) {
+export async function title(ctx: Context, opts: Opts): Promise<string[]> {
   const p = playerOrSelector(opts.for || opts.player || '@a');
   const [big = '', small = ''] = opts._.slice(1);
-  const component = (text, color, bold) => JSON.stringify({ text: String(text), color, ...(bold ? { bold: true } : {}) });
+  const component = (text: string, color: string, bold?: boolean) => JSON.stringify({ text: String(text), color, ...(bold ? { bold: true } : {}) });
   return withRcon(ctx, async (r) => {
     const res = await runAll(r, [`title ${p} times 10 60 20`, ...(small ? [`title ${p} subtitle ${component(small, 'yellow')}`] : []), `title ${p} title ${component(big, 'gold', true)}`]);
     return [`title shown to ${p}`, ...res.problems.map((x) => `  problem: ${x}`)];
@@ -89,7 +90,7 @@ async function title(ctx, opts) {
 }
 
 /** graftkit cmd "<command>" ...  (raw server commands, as typed in the server console) */
-async function cmd(ctx, opts) {
+export async function cmd(ctx: Context, opts: Opts): Promise<string[]> {
   const commands = opts._.slice(1);
   if (!commands.length) throw new Error('cmd needs at least one command');
   return withRcon(ctx, async (r) => {
@@ -101,5 +102,3 @@ async function cmd(ctx, opts) {
     return out;
   });
 }
-
-module.exports = { status, immortal, gear, raid, title, cmd };

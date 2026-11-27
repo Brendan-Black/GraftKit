@@ -1,14 +1,16 @@
 // The Mac side: the launcher setup's JSON transform, and sync.sh run for real in bash against a live share, with
 // macOS-only tools (shasum, osascript, pgrep) replaced by pseudos on PATH.
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const fs = require('fs');
-const os = require('os');
-const path = require('path');
-const { spawnSync, spawn } = require('child_process');
-const { upsert } = require('../mac/profile');
-const share = require('../src/share');
-const { tempServer, graftMod } = require('./helpers');
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { spawnSync, spawn } from 'node:child_process';
+import profile from '../mac/profile.cjs';
+import * as share from '../src/share.ts';
+import { tempServer, graftMod, portOf } from './helpers.ts';
+
+const { upsert } = profile;
 
 const NOW = '2026-11-26T00:00:00.000Z';
 
@@ -40,7 +42,7 @@ const tools = ['bash', 'curl', 'sha256sum', 'grep', 'mktemp'];
 const missing = tools.filter((t) => spawnSync('sh', ['-c', `command -v ${t}`]).status !== 0);
 const needsTools = missing.length ? `needs ${missing.join(', ')}` : false; // node:test skips on any non-false value, even 0
 // Exactly what a friend types: curl the script from the share and pipe it to bash, with no arguments.
-const runSync = (base, home, bin) => new Promise((resolve) => {
+const runSync = (base: string, home: string, bin: string) => new Promise<{ code: number | null; out: string }>((resolve) => {
   const p = spawn('bash', ['-c', 'curl -fsSL "$0/sync" | bash', base], { env: { ...process.env, HOME: home, PATH: `${bin}:${process.env.PATH}`, TMPDIR: home } });
   let out = '';
   p.stdout.on('data', (d) => { out += d; });
@@ -53,17 +55,17 @@ test('sync.sh installs Graft and the mods, sets up the launcher, then follows th
   fs.writeFileSync(path.join(cfg.modsDir, 'zoom-1.0.jar'), graftMod('zoom', '1.0'));
   const server = await share.listen(cfg, () => {}, 0);
   t.after(() => new Promise((res) => { server.closeAllConnections(); server.close(res); }));
-  const base = `http://127.0.0.1:${server.address().port}`;
+  const base = `http://127.0.0.1:${portOf(server)}`;
 
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'graftkit-mac-'));
   t.after(() => fs.rmSync(home, { recursive: true, force: true }));
   const bin = path.join(home, 'bin');
   fs.mkdirSync(bin);
-  const tool = (name, body) => { fs.writeFileSync(path.join(bin, name), `#!/bin/bash\n${body}\n`); fs.chmodSync(path.join(bin, name), 0o755); };
+  const tool = (name: string, body: string) => { fs.writeFileSync(path.join(bin, name), `#!/bin/bash\n${body}\n`); fs.chmodSync(path.join(bin, name), 0o755); };
   tool('shasum', '[ "$1" = "-a" ] && shift 2; exec sha256sum "$@"');
   tool('pgrep', 'exit 1');
   // osascript -l JavaScript <script> <file> <agent> <version> <name>: run the same upsert() under Node.
-  tool('osascript', `exec node -e 'const fs=require("fs");const {upsert}=require(${JSON.stringify(path.join(__dirname, '..', 'mac', 'profile.js'))});const [,f,a,v,n]=process.argv.slice(1);fs.writeFileSync(f, upsert(fs.existsSync(f)?fs.readFileSync(f,"utf8"):"", a, v, n, "now"))' -- "$3" "$4" "$5" "$6" "$7"`);
+  tool('osascript', `exec node -e 'const fs=require("fs");const {upsert}=require(${JSON.stringify(path.join(import.meta.dirname, '..', 'mac', 'profile.cjs'))});const [,f,a,v,n]=process.argv.slice(1);fs.writeFileSync(f, upsert(fs.existsSync(f)?fs.readFileSync(f,"utf8"):"", a, v, n, "now"))' -- "$3" "$4" "$5" "$6" "$7"`);
   const mc = path.join(home, 'Library', 'Application Support', 'minecraft');
 
   const first = await runSync(base, home, bin);
@@ -88,7 +90,7 @@ test('sync.sh installs Graft and the mods, sets up the launcher, then follows th
 
 test('sync.sh refuses a missing or odd address', { skip: needsTools }, () => {
   for (const arg of [[], ['http://x;rm -rf ~'], ['https://x']]) {
-    const r = spawnSync('bash', [path.join(__dirname, '..', 'mac', 'sync.sh'), ...arg], { encoding: 'utf8' });
+    const r = spawnSync('bash', [path.join(import.meta.dirname, '..', 'mac', 'sync.sh'), ...arg], { encoding: 'utf8' });
     assert.equal(r.status, 2, String(arg));
     assert.match(r.stdout, /usage:/);
   }

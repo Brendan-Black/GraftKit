@@ -1,20 +1,19 @@
 #!/usr/bin/env node
 // graftkit: a Graft mod manager and Minecraft server toolkit. Run `graftkit help`.
-const fs = require('fs');
-const path = require('path');
-const { loadConfig } = require('./config');
-const { createContext } = require('./context');
-const { parseArgs } = require('./actions/util');
-const mods = require('./mods');
-const server = require('./server');
-const { house } = require('./actions/house');
-const { village } = require('./actions/village');
-const { army, pets } = require('./actions/pets');
-const player = require('./actions/player');
+import fs from 'node:fs';
+import { loadConfig, type Config } from './config.ts';
+import { createContext } from './context.ts';
+import { errorMessage } from './errors.ts';
+import { ACTIONS } from './actions/index.ts';
+import { parseArgs, type Opts } from './actions/util.ts';
+import * as dashboard from './dashboard.ts';
+import * as mods from './mods.ts';
+import * as server from './server.ts';
+import * as windows from './windows.ts';
 
-const ACTIONS = { house, village, army, pets, status: player.status, immortal: player.immortal, gear: player.gear, raid: player.raid, title: player.title, cmd: player.cmd };
+export { ACTIONS };
 
-const HELP = `graftkit: Graft mod manager and Minecraft server toolkit
+export const HELP = `graftkit: Graft mod manager and Minecraft server toolkit
 
   graftkit dashboard [--no-open]     web dashboard: server, live console, mods, sharing, toolkit
   graftkit server start|stop|status
@@ -37,7 +36,7 @@ Server actions (the server must be running; aim with --near/--for <player> or --
   raid --for p                       Bad Omen, then waits for the first wave (stand in a village)
   title --for p|@a "Big text" ["small text"]`;
 
-function findProject(cfg, name) {
+function findProject(cfg: Config, name: unknown): mods.Project {
   const all = mods.projects(cfg);
   const hit = all.filter((p) => p.name.toLowerCase() === String(name).toLowerCase() || p.dir === name);
   if (hit.length === 1) return hit[0];
@@ -45,10 +44,10 @@ function findProject(cfg, name) {
   throw new Error(`no Graft mod project "${name}"; found: ${all.map((p) => p.name).join(', ') || 'none'}`);
 }
 
-async function modsCommand(cfg, opts) {
+async function modsCommand(cfg: Config, opts: Opts): Promise<string[]> {
   const sub = opts._[1] || 'list';
   if (sub === 'list') {
-    const line = (m) => `  ${m.file}  ${m.kind === 'graft' ? `${m.info.id} ${m.info.version}` : m.kind === 'other' ? '(not a Graft mod)' : `(unreadable: ${m.reason})`}`;
+    const line = (m: mods.Jar) => `  ${m.file}  ${m.kind === 'graft' ? `${m.info.id} ${m.info.version}` : m.kind === 'other' ? '(not a Graft mod)' : `(unreadable: ${m.reason})`}`;
     const out = ['published (the server runs these; friends sync them):', ...mods.published(cfg).map(line)];
     const off = mods.disabled(cfg);
     if (off.length) out.push('switched off:', ...off.map(line));
@@ -76,14 +75,15 @@ async function modsCommand(cfg, opts) {
   throw new Error(`unknown mods command "${sub}"`);
 }
 
-async function main(argv) {
+/** Runs one graftkit command line; resolves with the lines to print. The dashboard and share never resolve. */
+export async function main(argv: readonly string[]): Promise<string[]> {
   const opts = parseArgs(argv);
   const cmd = opts._[0] || 'help';
   if (cmd === 'help' || cmd === '--help' || cmd === '-h') return HELP.split('\n');
   const cfg = loadConfig();
   const ctx = createContext(cfg);
-  if (cmd === 'dashboard') return require('./dashboard').run(ctx, opts);
-  if (cmd === 'share') return require('./dashboard').shareForeground(ctx);
+  if (cmd === 'dashboard') return dashboard.run(ctx, opts);
+  if (cmd === 'share') return dashboard.shareForeground(ctx);
   if (cmd === 'mods') return modsCommand(cfg, opts);
   if (cmd === 'server') {
     const sub = opts._[1] || 'status';
@@ -91,7 +91,7 @@ async function main(argv) {
     if (sub === 'status') return [up ? 'the server is running' : 'the server is not running'];
     if (sub === 'start') {
       if (up) return ['the server is already running'];
-      require('./windows').startServer(cfg);
+      windows.startServer(cfg);
       return ['starting the server in its own window; accept the admin prompt so it can open its firewall port'];
     }
     if (sub === 'stop') {
@@ -101,17 +101,15 @@ async function main(argv) {
     }
     throw new Error(`unknown server command "${sub}"`);
   }
-  if (ACTIONS[cmd]) return ACTIONS[cmd](ctx, opts);
+  if (Object.hasOwn(ACTIONS, cmd)) return ACTIONS[cmd](ctx, opts);
   throw new Error(`unknown command "${cmd}"; try graftkit help`);
 }
 
-if (require.main === module) {
+if (import.meta.main) {
   main(process.argv.slice(2)).then((lines) => {
     if (Array.isArray(lines)) console.log(lines.join('\n'));
-  }, (e) => {
-    console.error(`graftkit: ${e.message}`);
+  }, (e: unknown) => {
+    console.error(`graftkit: ${errorMessage(e)}`);
     process.exit(1);
   });
 }
-
-module.exports = { main, ACTIONS, HELP };
